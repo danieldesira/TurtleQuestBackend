@@ -4,12 +4,14 @@ import { version, author } from "../package.json";
 import { cors } from "hono/cors";
 import { OAuth2Client } from "google-auth-library";
 import { env } from "hono/adapter";
+import { PrismaClient } from "@prisma/client";
 
 export const config = {
   runtime: "edge",
 };
 
 const app = new Hono().basePath("/api");
+const prisma = new PrismaClient();
 
 app.use("/api/*", cors());
 
@@ -18,6 +20,14 @@ app.get("/about", (c) =>
 );
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+interface GoogleUserPayload {
+  sub: string;
+  name: string;
+  given_name: string;
+  family_name: string;
+  picture: string;
+}
 
 const verifyGoogleToken = async (
   c: Context,
@@ -35,7 +45,7 @@ const verifyGoogleToken = async (
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
-    const payload = ticket.getPayload();
+    const payload = ticket.getPayload() as GoogleUserPayload;
 
     if (payload) {
       env(c).user = payload;
@@ -47,6 +57,16 @@ const verifyGoogleToken = async (
     return c.json({ error: "Invalid token" }, 401);
   }
 };
+
+app.get("/login", verifyGoogleToken, async (c) => {
+  const user = env(c).user as GoogleUserPayload;
+
+  const player = await prisma.player.findFirst({
+    where: { external_id: user.sub, platform: "google" },
+  });
+
+  return c.json({ message: "Login successful", user });
+});
 
 app.get("/points", verifyGoogleToken, (c) => {
   const user = env(c).user;
