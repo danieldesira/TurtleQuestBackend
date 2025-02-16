@@ -2,53 +2,64 @@ import { Context, Hono } from "hono";
 import { handle } from "hono/vercel";
 import { version, author } from "../package.json";
 import { cors } from "hono/cors";
-import { OAuth2Client } from "google-auth-library";
 import { env } from "hono/adapter";
 import { PrismaClient } from "@prisma/client";
+import { PrismaNeon } from "@prisma/adapter-neon";
+import { neonConfig, Pool } from "@neondatabase/serverless";
+import { logger } from "hono/logger";
+import { checkAndRegisterPlayerGoogle } from "../services/authService";
 
 export const config = {
   runtime: "edge",
 };
 
 const app = new Hono().basePath("/api");
-const prisma = new PrismaClient();
+
+neonConfig.webSocketConstructor = WebSocket;
+const connectionString = process.env.DATABASE_URL;
+
+const pool = new Pool({ connectionString });
+const adapter = new PrismaNeon(pool);
+const prisma = new PrismaClient({ adapter });
 
 app.use("/api/*", cors());
+app.use(logger());
 
 app.get("/about", (c) =>
   c.json({ project: "Turtle Quest API", version, author })
 );
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-interface GoogleUserPayload {
-  sub: string;
-  name: string;
-  given_name: string;
-  family_name: string;
-  picture: string;
-}
-
 const verifyGoogleToken = async (
   c: Context,
   next: () => Promise<void>
 ): Promise<Response | void> => {
-  const token = c.req.header("Authorization")?.split("Bearer ")[1];
-
+  const token = c.req.header("Authorization");
   if (!token) {
     return c.json({ error: "Token missing" }, 401);
   }
 
   try {
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload() as GoogleUserPayload;
+    const response = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
+    );
+    const payload = await response.json();
 
     if (payload) {
-      env(c).user = payload;
+      if (
+        payload.iss !== "https://accounts.google.com" &&
+        payload.iss !== "accounts.google.com"
+      ) {
+        throw new Error("Invalid issuer");
+      }
+
+      if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+        throw new Error("Invalid audience");
+      }
+
+      await checkAndRegisterPlayerGoogle(prisma, payload);
+
+      env(c).externalId = payload.sub;
+      env(c).ssoPlatform = "google";
       await next();
     } else {
       return c.json({ error: "Invalid token payload" }, 401);
@@ -58,14 +69,11 @@ const verifyGoogleToken = async (
   }
 };
 
-app.get("/login", verifyGoogleToken, async (c) => {
-  const user = env(c).user as GoogleUserPayload;
+app.post("/login", verifyGoogleToken, async (c) => {
+  const externalId = env(c).externalId as string;
+  const ssoPlatform = env(c).ssoPlatform as string;
 
-  const player = await prisma.player.findFirst({
-    where: { external_id: user.sub, platform: "google" },
-  });
-
-  return c.json({ message: "Login successful", user });
+  return c.json({ message: "Login successful", externalId, ssoPlatform });
 });
 
 app.get("/points", verifyGoogleToken, (c) => {

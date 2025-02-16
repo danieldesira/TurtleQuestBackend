@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -8,7 +9,6 @@ datasource db {
 }
 
 model player {
-  id            Int       @id(map: "player_pk")
   name          String?   @db.VarChar(128)
   date_of_birth DateTime? @db.Date
   external_id   String    @db.VarChar
@@ -19,15 +19,13 @@ model player {
   last_login_at DateTime? @db.Timestamp(6)
   email         String    @unique(map: "player_unique") @db.VarChar
   settings      Json?     @db.Json
-  score         score[]
+  id            Int       @id @default(autoincrement())
 }
 
 model score {
   id         Int      @id(map: "score_pk")
-  player_id  Int
   points     Int
   level      Int      @db.SmallInt
   player_won String   @db.Bit(1)
   created_at DateTime @db.Timestamp(6)
-  player     player   @relation(fields: [player_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "score_player_fk")
 }
