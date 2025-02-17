@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig, Pool } from "@neondatabase/serverless";
 import { logger } from "hono/logger";
-import { checkAndRegisterPlayerGoogle } from "../services/authService";
+import { fetchGoogleUser, isNewPlayerGoogle } from "../services/authService";
 
 export const config = {
   runtime: "edge",
@@ -22,7 +22,7 @@ const pool = new Pool({ connectionString });
 const adapter = new PrismaNeon(pool);
 const prisma = new PrismaClient({ adapter });
 
-app.use("/api/*", cors());
+app.use(cors());
 app.use(logger());
 
 app.get("/about", (c) =>
@@ -39,31 +39,14 @@ const verifyGoogleToken = async (
   }
 
   try {
-    const response = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
-    );
-    const payload = await response.json();
+    const payload = await fetchGoogleUser(token);
 
-    if (payload) {
-      if (
-        payload.iss !== "https://accounts.google.com" &&
-        payload.iss !== "accounts.google.com"
-      ) {
-        throw new Error("Invalid issuer");
-      }
+    const isNewPlayer = await isNewPlayerGoogle(prisma, payload);
 
-      if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
-        throw new Error("Invalid audience");
-      }
-
-      await checkAndRegisterPlayerGoogle(prisma, payload);
-
-      env(c).externalId = payload.sub;
-      env(c).ssoPlatform = "google";
-      await next();
-    } else {
-      return c.json({ error: "Invalid token payload" }, 401);
-    }
+    env(c).externalId = payload.sub;
+    env(c).ssoPlatform = "google";
+    env(c).isNewPlayer = isNewPlayer;
+    await next();
   } catch (error) {
     return c.json({ error: "Invalid token" }, 401);
   }
@@ -72,8 +55,14 @@ const verifyGoogleToken = async (
 app.post("/login", verifyGoogleToken, async (c) => {
   const externalId = env(c).externalId as string;
   const ssoPlatform = env(c).ssoPlatform as string;
+  const isNewPlayer = env(c).isNewPlayer as boolean;
 
-  return c.json({ message: "Login successful", externalId, ssoPlatform });
+  return c.json({
+    message: "Login successful",
+    externalId,
+    ssoPlatform,
+    isNewPlayer,
+  });
 });
 
 app.get("/points", verifyGoogleToken, (c) => {

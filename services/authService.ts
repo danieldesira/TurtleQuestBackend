@@ -9,7 +9,7 @@ interface GoogleUserPayload {
   email: string;
 }
 
-export const checkAndRegisterPlayerGoogle = async (
+export const isNewPlayerGoogle = async (
   prisma: PrismaClient,
   user: GoogleUserPayload
 ) => {
@@ -29,10 +29,38 @@ export const checkAndRegisterPlayerGoogle = async (
         created_at: new Date(),
       },
     });
+    return true;
   } else {
     await prisma.player.update({
       where: { id: player.id },
       data: { last_login_at: new Date() },
     });
+    return false;
   }
+};
+
+export const fetchGoogleUser = async (
+  token: string
+): Promise<GoogleUserPayload> => {
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
+  );
+  const payload = await response.json();
+
+  if (!payload) {
+    throw Error("Invalid token payload");
+  }
+
+  if (
+    payload.iss !== "https://accounts.google.com" &&
+    payload.iss !== "accounts.google.com"
+  ) {
+    throw new Error("Invalid issuer");
+  }
+
+  if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+    throw new Error("Invalid audience");
+  }
+
+  return payload;
 };
