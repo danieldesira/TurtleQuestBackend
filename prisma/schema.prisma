@@ -20,12 +20,15 @@ model player {
   email         String    @unique(map: "player_unique") @db.VarChar
   settings      Json?     @db.Json
   id            Int       @id @default(autoincrement())
+  score         score[]
 }
 
 model score {
-  id         Int      @id(map: "score_pk")
   points     Int
   level      Int      @db.SmallInt
   player_won String   @db.Bit(1)
   created_at DateTime @db.Timestamp(6)
+  player_id  Int?
+  id         Int      @id(map: "score_pk") @default(autoincrement())
+  player     player?  @relation(fields: [player_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "score_player_fk")
 }

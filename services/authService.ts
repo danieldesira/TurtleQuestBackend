@@ -9,16 +9,21 @@ interface GoogleUserPayload {
   email: string;
 }
 
-export const isNewPlayerGoogle = async (
+interface CheckAndRegisterPlayerGoogleResult {
+  id: number;
+  isNewPlayer: boolean;
+}
+
+export const checkAndRegisterPlayerGoogle = async (
   prisma: PrismaClient,
   user: GoogleUserPayload
-) => {
+): Promise<CheckAndRegisterPlayerGoogleResult> => {
   const player = await prisma.player.findFirst({
     where: { external_id: user.sub, platform: "google" },
   });
 
   if (!player) {
-    await prisma.player.create({
+    const { id } = await prisma.player.create({
       data: {
         external_id: user.sub,
         platform: "google",
@@ -29,13 +34,13 @@ export const isNewPlayerGoogle = async (
         created_at: new Date(),
       },
     });
-    return true;
+    return { id, isNewPlayer: true };
   } else {
     await prisma.player.update({
       where: { id: player.id },
       data: { last_login_at: new Date() },
     });
-    return false;
+    return { id: player.id, isNewPlayer: false };
   }
 };
 

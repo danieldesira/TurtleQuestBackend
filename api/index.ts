@@ -7,7 +7,11 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig, Pool } from "@neondatabase/serverless";
 import { logger } from "hono/logger";
-import { fetchGoogleUser, isNewPlayerGoogle } from "../services/authService";
+import {
+  checkAndRegisterPlayerGoogle,
+  fetchGoogleUser,
+} from "../services/authService";
+import { saveScore, SaveScorePayload } from "../services/scoreService";
 
 export const config = {
   runtime: "edge",
@@ -41,11 +45,16 @@ const verifyGoogleToken = async (
   try {
     const payload = await fetchGoogleUser(token);
 
-    const isNewPlayer = await isNewPlayerGoogle(prisma, payload);
+    const { id: playerId, isNewPlayer } = await checkAndRegisterPlayerGoogle(
+      prisma,
+      payload
+    );
 
     env(c).externalId = payload.sub;
     env(c).ssoPlatform = "google";
     env(c).isNewPlayer = isNewPlayer;
+    env(c).playerId = playerId as number;
+
     await next();
   } catch (error) {
     return c.json({ error: "Invalid token" }, 401);
@@ -63,6 +72,18 @@ app.post("/login", verifyGoogleToken, async (c) => {
     ssoPlatform,
     isNewPlayer,
   });
+});
+
+app.post("/points", verifyGoogleToken, async (c) => {
+  const playerId = parseInt(env(c).playerId as string);
+  const body = (await c.req.json()) as SaveScorePayload;
+
+  if (body.points && body.level) {
+    saveScore(prisma, playerId, body);
+    return c.json({ message: "Score saved successfully" });
+  } else {
+    return c.json({ error: "Incorrect score payload" }, 422);
+  }
 });
 
 app.get("/points", verifyGoogleToken, (c) => {
