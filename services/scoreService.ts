@@ -10,7 +10,7 @@ export const saveScore = async (
   prisma: PrismaClient,
   playerId: number,
   payload: SaveScorePayload
-) => {
+) =>
   await prisma.score.create({
     data: {
       player_id: playerId,
@@ -20,4 +20,22 @@ export const saveScore = async (
       created_at: new Date(),
     },
   });
-};
+
+export const getHighScores = async (prisma: PrismaClient) =>
+  await prisma.score.findMany({
+    take: 10,
+    orderBy: {
+      points: "desc",
+    },
+    select: {
+      points: true,
+      level: true,
+      player_won: true,
+      created_at: true,
+      player: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });

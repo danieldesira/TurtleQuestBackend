@@ -11,7 +11,13 @@ import {
   checkAndRegisterPlayerGoogle,
   fetchGoogleUser,
 } from "../services/authService";
-import { saveScore, SaveScorePayload } from "../services/scoreService";
+import {
+  getHighScores,
+  saveScore,
+  SaveScorePayload,
+} from "../services/scoreService";
+import { validator } from "hono/validator";
+import { z } from "zod";
 
 export const config = {
   runtime: "edge",
@@ -74,21 +80,42 @@ app.post("/login", verifyGoogleToken, async (c) => {
   });
 });
 
-app.post("/points", verifyGoogleToken, async (c) => {
-  const playerId = parseInt(env(c).playerId as string);
-  const body = (await c.req.json()) as SaveScorePayload;
+app.post(
+  "/points",
+  verifyGoogleToken,
+  validator("json", (value, c) => {
+    const schema = z.object({
+      points: z.number({
+        invalid_type_error: "points should be a number",
+        required_error: "points is required",
+      }),
+      level: z.number({
+        invalid_type_error: "level should be a number",
+        required_error: "level is required",
+      }),
+      hasWon: z
+        .boolean({ invalid_type_error: "hasWon should be a boolean" })
+        .optional(),
+    });
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error }, 422);
+    }
+    return parsed.data;
+  }),
+  async (c) => {
+    const playerId = parseInt(env(c).playerId as string);
 
-  if (body.points && body.level) {
-    saveScore(prisma, playerId, body);
+    const body = (await c.req.json()) as SaveScorePayload;
+
+    await saveScore(prisma, playerId, body);
     return c.json({ message: "Score saved successfully" });
-  } else {
-    return c.json({ error: "Incorrect score payload" }, 422);
   }
-});
+);
 
-app.get("/points", verifyGoogleToken, (c) => {
-  const user = env(c).user;
-  return c.json({ message: "points to be shown here", user });
+app.get("/points", async (c) => {
+  const highScores = await getHighScores(prisma);
+  return c.json(highScores);
 });
 
 export default handle(app);
