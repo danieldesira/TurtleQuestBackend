@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { player, PrismaClient } from "@prisma/client";
 
 interface GoogleUserPayload {
   sub: string;
@@ -10,7 +10,7 @@ interface GoogleUserPayload {
 }
 
 interface CheckAndRegisterPlayerGoogleResult {
-  id: number;
+  player: player;
   isNewPlayer: boolean;
 }
 
@@ -23,7 +23,7 @@ export const checkAndRegisterPlayerGoogle = async (
   });
 
   if (!player) {
-    const { id } = await prisma.player.create({
+    const newPlayer = await prisma.player.create({
       data: {
         external_id: user.sub,
         platform: "google",
@@ -34,13 +34,13 @@ export const checkAndRegisterPlayerGoogle = async (
         created_at: new Date(),
       },
     });
-    return { id, isNewPlayer: true };
+    return { player: newPlayer, isNewPlayer: true };
   } else {
     await prisma.player.update({
       where: { id: player.id },
       data: { last_login_at: new Date() },
     });
-    return { id: player.id, isNewPlayer: false };
+    return { player, isNewPlayer: false };
   }
 };
 

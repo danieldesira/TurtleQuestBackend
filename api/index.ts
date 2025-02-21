@@ -3,7 +3,7 @@ import { handle } from "hono/vercel";
 import { version, author } from "../package.json";
 import { cors } from "hono/cors";
 import { env } from "hono/adapter";
-import { PrismaClient } from "@prisma/client";
+import { player, PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig, Pool } from "@neondatabase/serverless";
 import { logger } from "hono/logger";
@@ -18,6 +18,8 @@ import {
 } from "../services/scoreService";
 import { validator } from "hono/validator";
 import { z } from "zod";
+import { updateSettings } from "../services/playerService";
+import { pointInsertSchema, settingsSchema } from "./validation";
 
 export const config = {
   runtime: "edge",
@@ -51,7 +53,7 @@ const verifyGoogleToken = async (
   try {
     const payload = await fetchGoogleUser(token);
 
-    const { id: playerId, isNewPlayer } = await checkAndRegisterPlayerGoogle(
+    const { player, isNewPlayer } = await checkAndRegisterPlayerGoogle(
       prisma,
       payload
     );
@@ -59,12 +61,20 @@ const verifyGoogleToken = async (
     env(c).externalId = payload.sub;
     env(c).ssoPlatform = "google";
     env(c).isNewPlayer = isNewPlayer;
-    env(c).playerId = playerId as number;
+    env(c).player = JSON.stringify(player);
 
     await next();
   } catch (error) {
     return c.json({ error: "Invalid token" }, 401);
   }
+};
+
+const parseJsonBody = (schema: z.ZodObject<any>, value: object, c: Context) => {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error }, 422);
+  }
+  return parsed.data;
 };
 
 app.post("/login", verifyGoogleToken, async (c) => {
@@ -83,32 +93,13 @@ app.post("/login", verifyGoogleToken, async (c) => {
 app.post(
   "/points",
   verifyGoogleToken,
-  validator("json", (value, c) => {
-    const schema = z.object({
-      points: z.number({
-        invalid_type_error: "points should be a number",
-        required_error: "points is required",
-      }),
-      level: z.number({
-        invalid_type_error: "level should be a number",
-        required_error: "level is required",
-      }),
-      hasWon: z
-        .boolean({ invalid_type_error: "hasWon should be a boolean" })
-        .optional(),
-    });
-    const parsed = schema.safeParse(value);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error }, 422);
-    }
-    return parsed.data;
-  }),
+  validator("json", (value, c) => parseJsonBody(pointInsertSchema, value, c)),
   async (c) => {
-    const playerId = parseInt(env(c).playerId as string);
+    const player = JSON.parse(env(c).player as string) as player;
 
-    const body = (await c.req.json()) as SaveScorePayload;
+    const body = await c.req.json<SaveScorePayload>();
 
-    await saveScore(prisma, playerId, body);
+    await saveScore(prisma, player.id, body);
     return c.json({ message: "Score saved successfully" });
   }
 );
@@ -117,5 +108,22 @@ app.get("/points", async (c) => {
   const highScores = await getHighScores(prisma);
   return c.json(highScores);
 });
+
+app.get("/player", verifyGoogleToken, async (c) => {
+  const player = JSON.parse(env(c).player as string) as player;
+  return c.json({ player });
+});
+
+app.put(
+  "/settings",
+  verifyGoogleToken,
+  validator("json", (value, c) => parseJsonBody(settingsSchema, value, c)),
+  async (c) => {
+    const player = JSON.parse(env(c).player as string) as player;
+    const body = await c.req.json();
+    await updateSettings(prisma, player.id, body.settings);
+    return c.json({ message: "Settings updated successfully" });
+  }
+);
 
 export default handle(app);
