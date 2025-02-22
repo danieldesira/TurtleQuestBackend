@@ -19,3 +19,38 @@ export const settingsSchema = z.object({
     controlPosition: z.enum(["left", "right"]),
   }),
 });
+
+export const playerSchema = z.object({
+  name: z.string({
+    invalid_type_error: "name should be a string",
+    required_error: "name is required",
+  }),
+  dob: z.coerce.date({
+    invalid_type_error: "dob should be a date",
+    required_error: "dob is required",
+  }),
+});
+
+export const gameSchema = z.object({
+  game: z.object({
+    characters: z.array(
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        direction: z.number(),
+        type: z.string(),
+      })
+    ),
+    levelNo: z.number(),
+    turtle: z.object({
+      x: z.number(),
+      y: z.number(),
+      direction: z.number(),
+      food: z.number(),
+      health: z.number(),
+      oxygen: z.number(),
+      stomachCapacity: z.number(),
+    }),
+    xp: z.number(),
+  }),
+});

@@ -18,8 +18,12 @@ import {
 } from "../services/scoreService";
 import { validator } from "hono/validator";
 import { z } from "zod";
-import { updateSettings } from "../services/playerService";
-import { pointInsertSchema, settingsSchema } from "./validation";
+import {
+  Player,
+  updateJsonField,
+  updatePlayer,
+} from "../services/playerService";
+import { gameSchema, playerSchema, pointInsertSchema, settingsSchema } from "./validation";
 
 export const config = {
   runtime: "edge",
@@ -115,13 +119,38 @@ app.get("/player", verifyGoogleToken, async (c) => {
 });
 
 app.put(
+  "/player",
+  verifyGoogleToken,
+  validator("json", (value, c) => parseJsonBody(playerSchema, value, c)),
+  async (c) => {
+    const player = JSON.parse(env(c).player as string) as player;
+    const body = await c.req.json();
+    await updatePlayer(prisma, player.id, body as Player);
+    return c.json({ message: "Player updated successfully" });
+  }
+);
+
+app.put(
   "/settings",
   verifyGoogleToken,
   validator("json", (value, c) => parseJsonBody(settingsSchema, value, c)),
   async (c) => {
     const player = JSON.parse(env(c).player as string) as player;
     const body = await c.req.json();
-    await updateSettings(prisma, player.id, body.settings);
+    await updateJsonField(prisma, player.id, 
+      'settings', body.settings);
+    return c.json({ message: "Settings updated successfully" });
+  }
+);
+
+app.put(
+  "/game",
+  verifyGoogleToken,
+  validator("json", (value, c) => parseJsonBody(gameSchema, value, c)),
+  async (c) => {
+    const player = JSON.parse(env(c).player as string) as player;
+    const body = await c.req.json();
+    await updateJsonField(prisma, player.id,'last_game', body.game);
     return c.json({ message: "Settings updated successfully" });
   }
 );
